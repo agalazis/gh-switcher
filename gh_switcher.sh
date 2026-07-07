@@ -1,3 +1,5 @@
+unalias gh_original 2>/dev/null
+
 gh_original() {
   command gh "$@"
 }
