@@ -101,10 +101,25 @@ gh_cache_profile_info() {
       if [[ -z "$ENV_GITHUB_EMAIL" ]]; then
         ENV_GITHUB_EMAIL="$email_resolved"
       fi
+    fi
 
-      # Write all cached variables to the env file
-      echo "ENV_GITHUB_ACCOUNT=$target_account" > "$env_file"
-      echo "ENV_GITHUB_NAME=\"$ENV_GITHUB_NAME\"" >> "$env_file"
+    # If email remains unresolved (API failed/returned empty), prompt the user for it
+    if [[ -z "$ENV_GITHUB_EMAIL" ]]; then
+      echo "Could not resolve email from GitHub API automatically."
+      echo "Please provide email for $target_account:"
+      read -r ENV_GITHUB_EMAIL
+      ENV_GITHUB_EMAIL="${ENV_GITHUB_EMAIL//[[:space:]]/}"
+    fi
+
+    # Default name to target_account if still empty
+    if [[ -z "$ENV_GITHUB_NAME" ]]; then
+      ENV_GITHUB_NAME="$target_account"
+    fi
+
+    # Write all cached variables to the env file
+    echo "ENV_GITHUB_ACCOUNT=$target_account" > "$env_file"
+    echo "ENV_GITHUB_NAME=\"$ENV_GITHUB_NAME\"" >> "$env_file"
+    if [[ -n "$ENV_GITHUB_EMAIL" ]]; then
       echo "ENV_GITHUB_EMAIL=\"$ENV_GITHUB_EMAIL\"" >> "$env_file"
     fi
   fi
