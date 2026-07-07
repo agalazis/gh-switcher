@@ -81,6 +81,29 @@ gh(){
     gh_original auth switch
   done
 
+  # Retrieve and cache the user's name and email if not already cached
+  if [[ -z "$ENV_GITHUB_NAME" || -z "$ENV_GITHUB_EMAIL" ]]; then
+    local user_info
+    user_info=$(gh_original api user --jq '"\(.name // .login)|\(if .email != null then .email else "\(.id)+\(.login)@users.noreply.github.com" end)"' 2>/dev/null)
+    if [[ -n "$user_info" ]]; then
+      ENV_GITHUB_NAME="${user_info%%|*}"
+      ENV_GITHUB_EMAIL="${user_info##*|}"
+      # Write all cached variables to the env file
+      echo "ENV_GITHUB_ACCOUNT=$ENV_GITHUB_ACCOUNT" > "$env_file"
+      echo "ENV_GITHUB_NAME=\"$ENV_GITHUB_NAME\"" >> "$env_file"
+      echo "ENV_GITHUB_EMAIL=\"$ENV_GITHUB_EMAIL\"" >> "$env_file"
+    fi
+  fi
+
+  # Configure local git author if inside a Git repository and configuration differs
+  if [[ -n "$ENV_GITHUB_EMAIL" ]] && git rev-parse --is-inside-work-tree &>/dev/null; then
+    if [[ "$(git config --local user.email 2>/dev/null)" != "$ENV_GITHUB_EMAIL" ]]; then
+      git config --local user.name "$ENV_GITHUB_NAME"
+      git config --local user.email "$ENV_GITHUB_EMAIL"
+      echo "Configured local git author: $ENV_GITHUB_NAME <$ENV_GITHUB_EMAIL>"
+    fi
+  fi
+
   # Run the original gh command with passed arguments
   gh_original "$@"
 }
