@@ -7,8 +7,22 @@ gh_original() {
 export GITHUB_ENV_FILE=.github.env
 
 gh_env_create(){
-  echo "$1" && read
-  echo "ENV_GITHUB_ACCOUNT=$REPLY" > "$2"
+  local file_path="$1"
+  local account_input=""
+  local email_input=""
+
+  echo "Please provide GitHub account name:"
+  read -r account_input
+  account_input="${account_input//[[:space:]]/}"
+
+  echo "Please provide email for this account (optional, press Enter to auto-resolve):"
+  read -r email_input
+  email_input="${email_input//[[:space:]]/}"
+
+  echo "ENV_GITHUB_ACCOUNT=$account_input" > "$file_path"
+  if [[ -n "$email_input" ]]; then
+    echo "ENV_GITHUB_EMAIL=$email_input" >> "$file_path"
+  fi
 }
 
 gh(){
@@ -40,7 +54,7 @@ gh(){
         source "$env_file"
   else
         echo ".github.env not found"
-        gh_env_create ".github.env not found. Please provide account" "$env_file"
+        gh_env_create "$env_file"
         source "$env_file"
   fi
 
