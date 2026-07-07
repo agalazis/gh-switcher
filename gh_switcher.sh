@@ -7,7 +7,8 @@ gh_original() {
 export GITHUB_ENV_FILE=.github.env
 
 gh_env_create(){
-  local file_path="$1"
+  local file_path="${1:-$GITHUB_ENV_FILE}"
+  file_path="${file_path:-.github.env}"
   local account_input=""
   local email_input=""
 
