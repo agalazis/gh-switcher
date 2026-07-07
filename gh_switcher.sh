@@ -9,18 +9,16 @@ export GITHUB_ENV_FILE=.github.env
 gh_env_create(){
   # Fallback chain: 1st argument ($1) -> $GITHUB_ENV_FILE -> literal '.github.env'
   local file_path="${1:-${GITHUB_ENV_FILE:-.github.env}}"
-  local account_input="$2"
+  local account_input=""
   local email_input="$3"
 
-  # If account input is not provided as an argument, prompt for it
-  if [[ $# -lt 2 ]]; then
-    echo "Please provide GitHub account name:"
-    read -r account_input
-  fi
+  # Always prompt for the GitHub account name
+  echo "Please provide GitHub account name:"
+  read -r account_input
   account_input="${account_input//[[:space:]]/}"
 
-  # If email input is not provided as an argument, prompt for it
-  if [[ $# -lt 3 ]]; then
+  # If email is not passed as an argument ($3 is empty), prompt for it
+  if [[ -z "$email_input" ]]; then
     echo "Please provide email for this account (optional, press Enter to auto-resolve):"
     read -r email_input
   fi
