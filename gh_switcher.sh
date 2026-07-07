@@ -9,24 +9,52 @@ export GITHUB_ENV_FILE=.github.env
 gh_env_create(){
   # Fallback chain: 1st argument ($1) -> $GITHUB_ENV_FILE -> literal '.github.env'
   local file_path="${1:-${GITHUB_ENV_FILE:-.github.env}}"
-  local account_input=""
+  local account_input="$2"
   local email_input="$3"
+  local name_input=""
 
-  # Always prompt for the GitHub account name
-  echo "Please provide GitHub account name:"
-  read -r account_input
+  # If account input is not provided as an argument, prompt for it
+  if [[ -z "$account_input" ]]; then
+    echo "Please provide GitHub account name:"
+    read -r account_input
+  fi
   account_input="${account_input//[[:space:]]/}"
 
-  # If email is not passed as an argument ($3 is empty), prompt for it
+  # Resolve profile details from the public API for the entered account
+  local user_info name_resolved email_resolved user_id user_login
+  user_info=$(gh_original api "users/$account_input" --jq '"\(.name // .login)|\(.email // "")|\(.id)|\(.login)"' 2>/dev/null)
+  if [[ -n "$user_info" ]]; then
+    IFS='|' read -r name_resolved email_resolved user_id user_login <<< "$user_info"
+  fi
+
+  # If email is not passed as an argument, check resolved value or prompt
   if [[ -z "$email_input" ]]; then
-    echo "Please provide email for this account (optional, press Enter to auto-resolve):"
-    read -r email_input
+    email_input="$email_resolved"
+    if [[ -z "$email_input" ]]; then
+      echo "No public email found for account $account_input."
+      echo "Please provide email for $account_input (optional, press Enter to auto-resolve):"
+      read -r email_input
+      email_input="${email_input//[[:space:]]/}"
+      
+      # Fallback to noreply if empty
+      if [[ -z "$email_input" && -n "$user_id" && -n "$user_login" ]]; then
+        email_input="${user_id}+${user_login}@users.noreply.github.com"
+      fi
+    fi
   fi
   email_input="${email_input//[[:space:]]/}"
 
+  # Set name
+  name_input="$name_resolved"
+  if [[ -z "$name_input" ]]; then
+    name_input="$account_input"
+  fi
+
+  # Write all cached variables to the env file
   echo "ENV_GITHUB_ACCOUNT=$account_input" > "$file_path"
+  echo "ENV_GITHUB_NAME=\"$name_input\"" >> "$file_path"
   if [[ -n "$email_input" ]]; then
-    echo "ENV_GITHUB_EMAIL=$email_input" >> "$file_path"
+    echo "ENV_GITHUB_EMAIL=\"$email_input\"" >> "$file_path"
   fi
 }
 
@@ -81,48 +109,6 @@ gh_ensure_active_account() {
   done
 }
 
-gh_cache_profile_info() {
-  local env_file="$1"
-  local target_account="$2"
-
-  if [[ -z "$ENV_GITHUB_NAME" || -z "$ENV_GITHUB_EMAIL" ]]; then
-    local user_info name_resolved email_resolved
-    user_info=$(gh_original api user --jq '"\(.name // .login)|\(if .email != null then .email else "\(.id)+\(.login)@users.noreply.github.com" end)"' 2>/dev/null)
-    if [[ -n "$user_info" ]]; then
-      name_resolved="${user_info%%|*}"
-      email_resolved="${user_info##*|}"
-      
-      # Retain manually set values if already present
-      if [[ -z "$ENV_GITHUB_NAME" ]]; then
-        ENV_GITHUB_NAME="$name_resolved"
-      fi
-      if [[ -z "$ENV_GITHUB_EMAIL" ]]; then
-        ENV_GITHUB_EMAIL="$email_resolved"
-      fi
-    fi
-
-    # If email remains unresolved (API failed/returned empty), prompt the user for it
-    if [[ -z "$ENV_GITHUB_EMAIL" ]]; then
-      echo "Could not resolve email from GitHub API automatically."
-      echo "Please provide email for $target_account:"
-      read -r ENV_GITHUB_EMAIL
-      ENV_GITHUB_EMAIL="${ENV_GITHUB_EMAIL//[[:space:]]/}"
-    fi
-
-    # Default name to target_account if still empty
-    if [[ -z "$ENV_GITHUB_NAME" ]]; then
-      ENV_GITHUB_NAME="$target_account"
-    fi
-
-    # Write all cached variables to the env file
-    echo "ENV_GITHUB_ACCOUNT=$target_account" > "$env_file"
-    echo "ENV_GITHUB_NAME=\"$ENV_GITHUB_NAME\"" >> "$env_file"
-    if [[ -n "$ENV_GITHUB_EMAIL" ]]; then
-      echo "ENV_GITHUB_EMAIL=\"$ENV_GITHUB_EMAIL\"" >> "$env_file"
-    fi
-  fi
-}
-
 gh_configure_git_author() {
   local name="$1"
   local email="$2"
@@ -163,9 +149,6 @@ gh(){
   if ! gh_ensure_active_account "$ENV_GITHUB_ACCOUNT"; then
     return 1
   fi
-
-  # Retrieve and cache the user's name and email if they are not already set
-  gh_cache_profile_info "$env_file" "$ENV_GITHUB_ACCOUNT"
 
   # Configure local git author if inside a Git repository
   gh_configure_git_author "$ENV_GITHUB_NAME" "$ENV_GITHUB_EMAIL"
