@@ -44,6 +44,12 @@ gh(){
         source "$env_file"
   fi
 
+  # Trim leading/trailing whitespace from loaded variables to prevent parsing issues
+  ENV_GITHUB_ACCOUNT="${ENV_GITHUB_ACCOUNT//[[:space:]]/}"
+  ENV_GITHUB_NAME="${ENV_GITHUB_NAME#"${ENV_GITHUB_NAME%%[![:space:]]*}"}"
+  ENV_GITHUB_NAME="${ENV_GITHUB_NAME%"${ENV_GITHUB_NAME##*[![:space:]]}"}"
+  ENV_GITHUB_EMAIL="${ENV_GITHUB_EMAIL//[[:space:]]/}"
+
   if [[ -z $ENV_GITHUB_ACCOUNT ]]; then
         echo ".github.env does not include ENV_GITHUB_ACCOUNT. Please provide account" "$env_file"
   fi
@@ -81,13 +87,22 @@ gh(){
     gh_original auth switch
   done
 
-  # Retrieve and cache the user's name and email if not already cached
+  # Retrieve and cache the user's name and email if they are not already set
   if [[ -z "$ENV_GITHUB_NAME" || -z "$ENV_GITHUB_EMAIL" ]]; then
-    local user_info
+    local user_info name_resolved email_resolved
     user_info=$(gh_original api user --jq '"\(.name // .login)|\(if .email != null then .email else "\(.id)+\(.login)@users.noreply.github.com" end)"' 2>/dev/null)
     if [[ -n "$user_info" ]]; then
-      ENV_GITHUB_NAME="${user_info%%|*}"
-      ENV_GITHUB_EMAIL="${user_info##*|}"
+      name_resolved="${user_info%%|*}"
+      email_resolved="${user_info##*|}"
+      
+      # Retain manually set values if already present
+      if [[ -z "$ENV_GITHUB_NAME" ]]; then
+        ENV_GITHUB_NAME="$name_resolved"
+      fi
+      if [[ -z "$ENV_GITHUB_EMAIL" ]]; then
+        ENV_GITHUB_EMAIL="$email_resolved"
+      fi
+
       # Write all cached variables to the env file
       echo "ENV_GITHUB_ACCOUNT=$ENV_GITHUB_ACCOUNT" > "$env_file"
       echo "ENV_GITHUB_NAME=\"$ENV_GITHUB_NAME\"" >> "$env_file"
