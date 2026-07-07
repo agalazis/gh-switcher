@@ -1,6 +1,3 @@
-alias gh_original='command gh'
-
-# Fallback function for non-interactive shells where aliases are not expanded
 gh_original() {
   command gh "$@"
 }
