@@ -62,3 +62,134 @@ Once sourced, the `gh()` function intercepts your calls to the `gh` command:
 3. **Automated Switching**: It checks the currently active account. If it doesn't match `$ENV_GITHUB_ACCOUNT`, it runs `gh auth switch` automatically to cycle through accounts.
 4. **Cycle/Loop Prevention**: It tracks the accounts it has seen. If it cycles back to an account a second time without locating the target account, it halts, reports that the account was not found, and suggests running `gh auth login`.
 5. **Execution**: Once satisfied, the wrapper forwards your arguments transparently to the underlying `gh` binary.
+
+---
+
+## 📊 Flowchart
+
+```mermaid
+flowchart TD
+    Start([User executes: gh <args>]) --> Intercept[Wrapper intercepts command]
+    Intercept --> InitSearch[Set dir = current directory]
+
+    SearchLoop{Found .github.env in dir?}
+    InitSearch --> SearchLoop
+    
+    SearchLoop -- Yes --> SourceEnv[Source .github.env to load ENV_GITHUB_ACCOUNT]
+    SearchLoop -- No --> CheckBoundary{dir contains .git or is /?}
+    
+    CheckBoundary -- Yes --> DefaultDir[Default env_file to ./.github.env]
+    DefaultDir --> FileCheck{Does file exist?}
+    FileCheck -- Yes --> SourceEnv
+    FileCheck -- No --> PromptUser[Prompt user for account name & create file]
+    PromptUser --> SourceEnv
+
+    CheckBoundary -- No --> GoUp[Set dir = parent directory]
+    GoUp --> SearchLoop
+
+    SourceEnv --> GetActive[Retrieve active account via: command gh auth status]
+    GetActive --> MatchTarget{Active == ENV_GITHUB_ACCOUNT?}
+    
+    MatchTarget -- Yes --> RunCommand[Execute: command gh <args>] --> End([Success])
+    
+    MatchTarget -- No --> CheckSeen{Seen active account before?}
+    CheckSeen -- Yes --> ErrPrint[Print not-found error & suggest gh auth login] --> FailExit([Exit/Return 1])
+    
+    CheckSeen -- No --> MarkSeen[Add active account to seen_accounts]
+    MarkSeen --> SwitchAcc[Run: command gh auth switch]
+    SwitchAcc --> GetActive
+```
+
+---
+
+## 📄 Source Code (`gh_switcher.sh`)
+
+```bash
+alias gh_original='command gh'
+
+# Fallback function for non-interactive shells where aliases are not expanded
+gh_original() {
+  command gh "$@"
+}
+
+export GITHUB_ENV_FILE=.github.env
+
+gh_env_create(){
+  echo "$1" && read
+  echo "ENV_GITHUB_ACCOUNT=$REPLY" > "$2"
+}
+
+gh(){
+  local env_file=""
+  local dir="$PWD"
+
+  # Search upwards for the config file
+  while [[ -n "$dir" ]]; do
+    if [[ -f "$dir/$GITHUB_ENV_FILE" ]]; then
+      env_file="$dir/$GITHUB_ENV_FILE"
+      break
+    fi
+    # Stop searching if we reach a git repository boundary
+    if [[ -e "$dir/.git" ]]; then
+      break
+    fi
+    if [[ "$dir" == "/" ]]; then
+      break
+    fi
+    dir=$(dirname "$dir")
+  done
+
+  # Fallback to current directory if not found
+  if [[ -z "$env_file" ]]; then
+    env_file="./$GITHUB_ENV_FILE"
+  fi
+
+  if [[ -f "$env_file" ]]; then
+        source "$env_file"
+  else
+        echo ".github.env not found"
+        gh_env_create ".github.env not found. Please provide account" "$env_file"
+        source "$env_file"
+  fi
+
+  if [[ -z $ENV_GITHUB_ACCOUNT ]]; then
+        echo ".github.env does not include ENV_GITHUB_ACCOUNT. Please provide account" "$env_file"
+  fi
+
+  # Keep track of active GitHub accounts we encounter to prevent infinite loops
+  local -A seen_accounts
+  local current_account
+
+  while true; do
+    # Get current active account using the underlying binary
+    current_account=$(gh_original auth status --active --json hosts --jq '.hosts | add [0] .login' 2>/dev/null)
+
+    # Normalize empty or null account names to avoid "bad array subscript" errors
+    if [[ -z "$current_account" || "$current_account" == "null" ]]; then
+        current_account="empty_or_null"
+    fi
+
+    # Check if satisfied
+    if [[ "$current_account" == "$ENV_GITHUB_ACCOUNT" ]]; then
+        echo "$ENV_GITHUB_ACCOUNT logged in"
+        break
+    fi
+
+    # Check if we have reached this account twice
+    if [[ -n "${seen_accounts[$current_account]}" ]]; then
+        echo "Account '$ENV_GITHUB_ACCOUNT' was not found." >&2
+        echo "Try: gh auth login to login with $ENV_GITHUB_ACCOUNT" >&2
+        return 1
+    fi
+
+    # Mark as seen
+    seen_accounts["$current_account"]=1
+
+    # Switch and try again
+    gh_original auth switch
+  done
+
+  # Run the original gh command with passed arguments
+  gh_original "$@"
+}
+```
